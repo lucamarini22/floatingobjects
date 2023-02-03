@@ -14,47 +14,22 @@ import os
 import pandas as pd
 import glob
 
+from utils import load_convert_tiff
+
+
 def write(arr, filename, profile):
-    with rasterio.open(filename, 'w', **profile) as dst:
+    with rasterio.open(filename, "w", **profile) as dst:
         dst.write((arr * 255).astype(rasterio.uint8))
 
-def process_s2tiff(tiff, target_folder="/tmp/viz", upload=True, convert=True, thumbnail=True):
-    def load_convert_tiff(tiff):
 
-        with rasterio.open(tiff) as src:
-            arr = src.read()
-            meta = src.meta
-
-        if arr.shape[0] == 12:
-            bands = l2abands
-        elif arr.shape[0] == 13:
-            bands = l1cbands
-        else:
-            raise ValueError("expected tiff to have either 12 (L2A) or 13 (L1C) bands")
-
-        rgb = equalize_hist(arr[[bands.index("B4"), bands.index("B3"), bands.index("B2")]])
-
-        cmap_magma = matplotlib.cm.get_cmap('magma')
-        cmap_viridis = matplotlib.cm.get_cmap('viridis')
-
-        norm_fdi = matplotlib.colors.Normalize(vmin=0, vmax=0.1)
-        norm_ndvi = matplotlib.colors.Normalize(vmin=-.4, vmax=0.4)
-
-        ndvi = cmap_viridis(norm_ndvi(calculate_ndvi(arr)))
-        ndvi = np.rollaxis(ndvi, axis=2)
-        fdi = cmap_magma(norm_fdi(calculate_fdi(arr)))
-        fdi = np.rollaxis(fdi, axis=2)
-        return rgb, ndvi, fdi, meta
-
-
+def process_s2tiff(
+    tiff, target_folder="/tmp/viz", upload=True, convert=True, thumbnail=True
+):
     rgb, ndvi, fdi, meta = load_convert_tiff(tiff)
 
     name, ext = os.path.splitext(os.path.basename(tiff))
     profile = meta
-    profile.update(dict(
-        count=3,
-        dtype="uint8"
-    ))
+    profile.update(dict(count=3, dtype="uint8"))
 
     def convert_upload(arr, type):
 
@@ -72,16 +47,45 @@ def process_s2tiff(tiff, target_folder="/tmp/viz", upload=True, convert=True, th
         print("convert to COG")
         print(f"gdalwarp {filename} {cogfilename} -of COG -overwrite")
         if convert:
-            subprocess.call(["gdalwarp", filename, cogfilename, "-of", "COG", "-overwrite"])
+            subprocess.call(
+                ["gdalwarp", filename, cogfilename, "-of", "COG", "-overwrite"]
+            )
         print("upload to bucket:")
         print(f"aws s3 cp {cogfilename} s3://floatingobjects/data/ --acl public-read")
         url = f"https://floatingobjects.s3.eu-central-1.amazonaws.com/data/{fname}"
-        expl_url = f"https://geotiffjs.github.io/cog-explorer/#scene={url}&bands=&pipeline="
+        expl_url = (
+            f"https://geotiffjs.github.io/cog-explorer/#scene={url}&bands=&pipeline="
+        )
         if upload:
-            subprocess.call(["aws", "s3", "cp", cogfilename, "s3://floatingobjects/data/", "--acl", "public-read"])
+            subprocess.call(
+                [
+                    "aws",
+                    "s3",
+                    "cp",
+                    cogfilename,
+                    "s3://floatingobjects/data/",
+                    "--acl",
+                    "public-read",
+                ]
+            )
             print("tif should now be available at")
             print(expl_url)
-        cmd = ["gdal_translate", "-of", "JPEG", "-b", "1", "-b", "2", "-b", "3", filename, thumbname, "-outsize", "100", "100"]
+        cmd = [
+            "gdal_translate",
+            "-of",
+            "JPEG",
+            "-b",
+            "1",
+            "-b",
+            "2",
+            "-b",
+            "3",
+            filename,
+            thumbname,
+            "-outsize",
+            "100",
+            "100",
+        ]
         print(" ".join(cmd))
         if thumbnail:
             subprocess.call(cmd)
@@ -95,28 +99,26 @@ def process_s2tiff(tiff, target_folder="/tmp/viz", upload=True, convert=True, th
 
     return [name_cell, rgb_cell, ndvi_cell, fdi_cell]
 
-def process_prediction(tiff, target_folder = "/tmp/pred", convert=True, upload=True, thumbnail=True):
+
+def process_prediction(
+    tiff, target_folder="/tmp/pred", convert=True, upload=True, thumbnail=True
+):
     with rasterio.open(tiff) as src:
         arr = src.read()
         if src.meta["dtype"] == "uint8":
             arr = arr * 2**-8
         elif src.meta["dtype"] == "uint16":
-            arr = arr * 2 ** -16
+            arr = arr * 2**-16
         meta = src.meta
 
-    cmap = matplotlib.cm.get_cmap('magma')
+    cmap = matplotlib.cm.get_cmap("magma")
     norm = matplotlib.colors.Normalize(vmin=0, vmax=1)
     pred = cmap(norm(arr[0]))
     pred = np.rollaxis(pred, axis=2)[:3]
 
     os.makedirs(target_folder, exist_ok=True)
     profile = meta
-    profile.update(
-        dict(
-            count=3,
-            dtype="uint8"
-        )
-    )
+    profile.update(dict(count=3, dtype="uint8"))
 
     name, ext = os.path.splitext(os.path.basename(tiff))
     fname = name + "_pred" + ext
@@ -135,19 +137,47 @@ def process_prediction(tiff, target_folder = "/tmp/pred", convert=True, upload=T
     if convert:
         subprocess.call(["gdalwarp", filename, cogfilename, "-of", "COG", "-overwrite"])
     print("upload to bucket:")
-    print(f"aws s3 cp {cogfilename} s3://floatingobjects/predictions/ --acl public-read")
+    print(
+        f"aws s3 cp {cogfilename} s3://floatingobjects/predictions/ --acl public-read"
+    )
     url = f"https://floatingobjects.s3.eu-central-1.amazonaws.com/predictions/{fname}"
     expl_url = f"https://geotiffjs.github.io/cog-explorer/#scene={url}&bands=&pipeline="
     if upload:
-        subprocess.call(["aws", "s3", "cp", cogfilename, "s3://floatingobjects/predictions/", "--acl", "public-read"])
+        subprocess.call(
+            [
+                "aws",
+                "s3",
+                "cp",
+                cogfilename,
+                "s3://floatingobjects/predictions/",
+                "--acl",
+                "public-read",
+            ]
+        )
         print("tif should now be available at")
         print(expl_url)
-    cmd = ["gdal_translate", "-of", "JPEG", "-b", "1", "-b", "2", "-b", "3", filename, thumbname, "-outsize", "100", "100"]
+    cmd = [
+        "gdal_translate",
+        "-of",
+        "JPEG",
+        "-b",
+        "1",
+        "-b",
+        "2",
+        "-b",
+        "3",
+        filename,
+        thumbname,
+        "-outsize",
+        "100",
+        "100",
+    ]
     print(" ".join(cmd))
     if thumbnail:
         subprocess.call(cmd)
 
     return [f"[![{name}](doc/thumb/{os.path.basename(thumbname)})]({expl_url})"]
+
 
 def create_dummy_image(meta):
 
@@ -157,10 +187,11 @@ def create_dummy_image(meta):
 
     imagepath = "/tmp/dummyimage.tif"
     with rasterio.open(imagepath, "w", **meta) as dst:
-        dummydata = (np.random.rand(count, height, width) * (2 ** 16)).astype("uint16")
+        dummydata = (np.random.rand(count, height, width) * (2**16)).astype("uint16")
         dst.write(dummydata)
 
     return imagepath
+
 
 def get_test_images(pred_path):
     test_images = glob.glob(os.path.join(pred_path, "*", "test", "*.tif"))
@@ -168,10 +199,11 @@ def get_test_images(pred_path):
 
     df = pd.DataFrame(dict(path=test_images, name=test_names)).set_index("name")
     # keep first in duplicates
-    df = df[~df.index.duplicated(keep='first')]
+    df = df[~df.index.duplicated(keep="first")]
     return df
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
 
     """
     count = 1
@@ -209,13 +241,22 @@ if __name__ == '__main__':
 
         tiff = os.path.join(data_path, name + ".tif")
 
-        cells = process_s2tiff(tiff, target_folder=target_folder, upload=upload, convert=convert, thumbnail=True)
-        cells += process_prediction(path, target_folder=target_folder, convert=convert, upload=upload, thumbnail=True)
+        cells = process_s2tiff(
+            tiff,
+            target_folder=target_folder,
+            upload=upload,
+            convert=convert,
+            thumbnail=True,
+        )
+        cells += process_prediction(
+            path,
+            target_folder=target_folder,
+            convert=convert,
+            upload=upload,
+            thumbnail=True,
+        )
 
         row = " | " + " | ".join(cells) + " | "
         rows.append(row)
 
     print("\n".join(rows))
-
-
-
