@@ -8,7 +8,21 @@ import os
 import numpy as np
 import pandas as pd
 
-l1cbands = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B8A", "B9", "B10", "B11", "B12"]
+l1cbands = [
+    "B1",
+    "B2",
+    "B3",
+    "B4",
+    "B5",
+    "B6",
+    "B7",
+    "B8",
+    "B8A",
+    "B9",
+    "B10",
+    "B11",
+    "B12",
+]
 l2abands = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B8A", "B9", "B11", "B12"]
 
 # offset from image border to sample hard negative mining samples
@@ -24,13 +38,13 @@ allregions = [
     "lagos_20200505",
     "london_20180611",
     "longxuyen_20181102",
-    "mandaluyong_20180314",  
+    "mandaluyong_20180314",
     "neworleans_20200202",
     "panama_20190425",
     "portalfredSouthAfrica_20180601",
     "riodejaneiro_20180504",
     "sandiego_20180804",
-    "sanfrancisco_20190219", 
+    "sanfrancisco_20190219",
     "shengsi_20190615",
     "suez_20200403",
     "tangshan_20180130",
@@ -40,8 +54,9 @@ allregions = [
     "turkmenistan_20181030",
     "venice_20180630",
     "venice_20180928",
-    "vungtau_20180423"
-    ]
+    "vungtau_20180423",
+]
+
 
 def get_region_split(seed=0, fractions=(0.6, 0.2, 0.2)):
 
@@ -52,7 +67,9 @@ def get_region_split(seed=0, fractions=(0.6, 0.2, 0.2)):
     shuffled_regions = random_state.permutation(allregions)
 
     # determine first N indices for training
-    train_idxs = np.arange(0, np.floor(len(shuffled_regions) * fractions[0]).astype(int))
+    train_idxs = np.arange(
+        0, np.floor(len(shuffled_regions) * fractions[0]).astype(int)
+    )
 
     # next for validation
     idx = np.ceil(len(shuffled_regions) * (fractions[0] + fractions[1])).astype(int)
@@ -61,9 +78,11 @@ def get_region_split(seed=0, fractions=(0.6, 0.2, 0.2)):
     # the remaining for test
     test_idxs = np.arange(val_idxs.max() + 1, len(shuffled_regions))
 
-    return dict(train=list(shuffled_regions[train_idxs]),
-                val=list(shuffled_regions[val_idxs]),
-                test=list(shuffled_regions[test_idxs]))
+    return dict(
+        train=list(shuffled_regions[train_idxs]),
+        val=list(shuffled_regions[val_idxs]),
+        test=list(shuffled_regions[test_idxs]),
+    )
 
 
 def split_line_gdf_into_segments(lines):
@@ -77,9 +96,15 @@ def split_line_gdf_into_segments(lines):
 
 
 class FloatingSeaObjectRegionDataset(torch.utils.data.Dataset):
-    def __init__(self, root, region, output_size=64,
-                 transform=None, hard_negative_mining=True,
-                 use_l2a_probability=0.5):
+    def __init__(
+        self,
+        root,
+        region,
+        output_size=64,
+        transform=None,
+        hard_negative_mining=True,
+        use_l2a_probability=0.5,
+    ):
 
         shapefile = os.path.join(root, region + ".shp")
         imagefile = os.path.join(root, region + ".tif")
@@ -144,18 +169,22 @@ class FloatingSeaObjectRegionDataset(torch.utils.data.Dataset):
             left, bottom, right, top = src.bounds
 
         offset = HARD_NEGATIVE_MINING_SAMPLE_BORDER_OFFSET  # m
-        assert top - bottom > 2 * HARD_NEGATIVE_MINING_SAMPLE_BORDER_OFFSET, f"Hard Negative Mining offset 2x{HARD_NEGATIVE_MINING_SAMPLE_BORDER_OFFSET}m too large for the image height: {top - bottom}m"
-        assert right - left > 2 * HARD_NEGATIVE_MINING_SAMPLE_BORDER_OFFSET, f"Hard Negative Mining offset 2x{HARD_NEGATIVE_MINING_SAMPLE_BORDER_OFFSET}m too large for the image width: {right - left}m"
+        assert (
+            top - bottom > 2 * HARD_NEGATIVE_MINING_SAMPLE_BORDER_OFFSET
+        ), f"Hard Negative Mining offset 2x{HARD_NEGATIVE_MINING_SAMPLE_BORDER_OFFSET}m too large for the image height: {top - bottom}m"
+        assert (
+            right - left > 2 * HARD_NEGATIVE_MINING_SAMPLE_BORDER_OFFSET
+        ), f"Hard Negative Mining offset 2x{HARD_NEGATIVE_MINING_SAMPLE_BORDER_OFFSET}m too large for the image width: {right - left}m"
         N_random_points = len(self.lines)
 
         # sample random x positions within bounds
         zx = np.random.rand(N_random_points)
-        zx *= ((right - offset) - (left + offset))
+        zx *= (right - offset) - (left + offset)
         zx += left + offset
 
         # sample random y positions within bounds
         zy = np.random.rand(N_random_points)
-        zy *= ((top - offset) - (bottom + offset))
+        zy *= (top - offset) - (bottom + offset)
         zy += bottom + offset
 
         return gpd.GeoDataFrame(geometry=gpd.points_from_xy(zx, zy))
@@ -191,28 +220,45 @@ class FloatingSeaObjectRegionDataset(torch.utils.data.Dataset):
         with rio.open(imagefile) as src:
             image = src.read(window=window)
             # keep only 12 bands: delete 10th band (nb: 9 because start idx=0)
-            if (image.shape[0] == 13):  # is L1C Sentinel 2 data
+            if image.shape[0] == 13:  # is L1C Sentinel 2 data
                 image = image[[l1cbands.index(b) for b in l2abands]]
 
             win_transform = src.window_transform(window)
 
         h_, w_ = image[0].shape
-        assert h_ > 0 and w_ > 0, f"{self.region}-{index} returned image size {image[0].shape}"
+        assert (
+            h_ > 0 and w_ > 0
+        ), f"{self.region}-{index} returned image size {image[0].shape}"
         # only rasterize the not-hard negative mining samples
 
-        mask = features.rasterize(self.rasterize_geometries, all_touched=True,
-                                  transform=win_transform, out_shape=image[0].shape)
+        mask = features.rasterize(
+            self.rasterize_geometries,
+            all_touched=True,
+            transform=win_transform,
+            out_shape=image[0].shape,
+        )
 
         # if feature is near the image border, image wont be the desired output size
         H, W = self.output_size, self.output_size
         c, h, w = image.shape
         dh = (H - h) / 2
         dw = (W - w) / 2
-        image = np.pad(image, [(0, 0), (int(np.ceil(dh)), int(np.floor(dh))),
-                               (int(np.ceil(dw)), int(np.floor(dw)))])
+        image = np.pad(
+            image,
+            [
+                (0, 0),
+                (int(np.ceil(dh)), int(np.floor(dh))),
+                (int(np.ceil(dw)), int(np.floor(dw))),
+            ],
+        )
 
-        mask = np.pad(mask, [(int(np.ceil(dh)), int(np.floor(dh))),
-                             (int(np.ceil(dw)), int(np.floor(dw)))])
+        mask = np.pad(
+            mask,
+            [
+                (int(np.ceil(dh)), int(np.floor(dh))),
+                (int(np.ceil(dw)), int(np.floor(dw))),
+            ],
+        )
 
         mask = mask.astype(float)
         image = image.astype(float)
@@ -241,7 +287,10 @@ class FloatingSeaObjectDataset(torch.utils.data.ConcatDataset):
 
         # initialize a concat dataset with the corresponding regions
         super().__init__(
-            [FloatingSeaObjectRegionDataset(root, region, **kwargs) for region in self.regions]
+            [
+                FloatingSeaObjectRegionDataset(root, region, **kwargs)
+                for region in self.regions
+            ]
         )
 
 
