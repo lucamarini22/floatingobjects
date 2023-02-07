@@ -14,6 +14,9 @@ from visualization import plot_batch
 from transforms import get_transform
 import json
 from sklearn.metrics import precision_recall_fscore_support, cohen_kappa_score
+import kornia as K
+
+# from K.losses import BinaryFocalLossWithLogits
 
 
 def parse_args():
@@ -45,6 +48,11 @@ def parse_args():
         default=1,
         help="positional weight for the floating object class, large values counteract",
     )
+    parser.add_argument(
+        "--hard_negative_mining_train_dataset", type=bool, default=False
+    )
+    parser.add_argument("--loss", action="store_true", type=str, default="bce")
+
     args = parser.parse_args()
     # args.image_size = (args.image_size,args.image_size)
     return args
@@ -62,6 +70,8 @@ def main(args):
     learning_rate = args.learning_rate
 
     tensorboard_logdir = args.tensorboard_logdir
+    hard_negative_mining_train_dataset = args.hard_negative_mining_train_dataset
+    loss = args.loss
 
     dataset = FloatingSeaObjectDataset(
         data_path,
@@ -73,6 +83,7 @@ def main(args):
         ),
         output_size=image_size,
         seed=args.seed,
+        hard_negative_mining=hard_negative_mining_train_dataset,
     )
     valid_dataset = FloatingSeaObjectDataset(
         data_path,
@@ -82,7 +93,6 @@ def main(args):
         seed=args.seed,
         hard_negative_mining=False,
     )
-
     # store run arguments in the same folder
     run_arguments = vars(args)
     run_arguments["train_regions"] = ", ".join(dataset.regions)
@@ -90,7 +100,8 @@ def main(args):
     os.makedirs(os.path.dirname(args.snapshot_path), exist_ok=True)
     with open(
         os.path.join(
-            os.path.dirname(args.snapshot_path), f"run_arguments_{args.seed}.json"
+            os.path.dirname(args.snapshot_path),
+            f"run_arguments_{args.seed}{args.today}.json",
         ),
         "w",
     ) as outfile:
@@ -110,12 +121,21 @@ def main(args):
     # weights = compute_class_occurences(train_loader) #function that computes the occurences of the classes
     pos_weight = torch.FloatTensor([float(args.pos_weight)]).to(device)
 
-    bcecriterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
+    if loss == "bce":
+        loss_criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
+    elif loss == "focal":
+        loss_criterion = K.losses.BinaryFocalLossWithLogits(
+            alpha=0.25,
+            gamma=2.0,
+            reduction="none",  # pos_weight=pos_weight
+        )
+    else:
+        raise ValueError("Bad loss")
 
     def criterion(y_pred, target, mask=None):
         """a wrapper around BCEWithLogitsLoss that ignores no-data
         mask provides a boolean mask on valid data"""
-        loss = bcecriterion(y_pred, target)
+        loss = loss_criterion(y_pred, target)
         if mask is not None:
             return (loss * mask.double()).mean()
         else:
