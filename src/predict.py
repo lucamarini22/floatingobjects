@@ -13,7 +13,7 @@ from data import FloatingSeaObjectDataset
 from visualization import plot_batch
 from transforms import get_transform
 import json
-from sklearn.metrics import precision_recall_fscore_support, cohen_kappa_score
+from sklearn.metrics import precision_recall_fscore_support, cohen_kappa_score, jaccard_score
 
 
 def parse_args():
@@ -88,18 +88,18 @@ def main(args):
 
     # compute the number of labels in each class
     # weights = compute_class_occurences(train_loader) #function that computes the occurences of the classes
-    pos_weight = torch.FloatTensor([float(args.pos_weight)]).to(device)
+    #pos_weight = torch.FloatTensor([float(args.pos_weight)]).to(device)
 
-    bcecriterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
+    #bcecriterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
 
-    def criterion(y_pred, target, mask=None):
-        """a wrapper around BCEWithLogitsLoss that ignores no-data
-        mask provides a boolean mask on valid data"""
-        loss = bcecriterion(y_pred, target)
-        if mask is not None:
-            return (loss * mask.double()).mean()
-        else:
-            return loss.mean()
+    #def criterion(y_pred, target, mask=None):
+    #    """a wrapper around BCEWithLogitsLoss that ignores no-data
+    #    mask provides a boolean mask on valid data"""
+    #    loss = bcecriterion(y_pred, target)
+    #    if mask is not None:
+    #        return (loss * mask.double()).mean()
+    #    else:
+    #        return loss.mean()
         
     modelpath = args.pretrained_model_path
 
@@ -128,12 +128,13 @@ def main(args):
 
     #for epoch in range(start_epoch, n_epochs + 1):
         #trainloss = training_epoch(model, train_loader, optimizer, criterion, device)
-    valloss, metrics = testing_epoch(model, test_loader, criterion, device, writer)
+    metrics = testing_epoch(model, test_loader, device, writer) #model, test_loader, criterion, device, writer)
 
     log = dict(
         #epoch=epoch,
         #trainloss=trainloss,
-        valloss=valloss,
+        #valloss=valloss,
+        metrics=metrics
     )
     log.update(metrics)
 
@@ -142,49 +143,51 @@ def main(args):
     
 
     # retrieve best loss by iterating through previous logged losses
-    best_loss = min([l["valloss"] for l in logs])
+    #best_loss = min([l["valloss"] for l in logs])
     best_kappa = max([l["kappa"] for l in logs])
     kappa = metrics["kappa"]
 
-    msg_loss = ""  # write save model message in the same line of the pring
-    if valloss <= best_loss:
-        msg_loss = (
-            f"lowest loss is {valloss}" 
-        )
+    #msg_loss = ""  # write save model message in the same line of the pring
+    #if valloss <= best_loss:
+    #    msg_loss = (
+    #        f"lowest loss is {valloss}" 
+    #    )
     if kappa >= best_kappa:
         msg_kappa = (
-            f"lowest kappa is {valloss}" 
+            f"highest kappa is {best_kappa}" 
         )
 
     metrics_message = ", ".join([f"{k} {v:.2f}" for k, v in metrics.items()])
 
     print(
-        f"valloss {valloss:.4f}, {metrics_message}, {msg_loss}, {msg_kappa}"
+        f"{metrics_message}, {msg_kappa}"
     )
 
 
-def testing_epoch(model, test_loader, criterion, device, writer):
+def testing_epoch(model, test_loader, device, writer): #criterion, device, writer):
     with torch.no_grad():
         model.eval()
-        losses = []
-        metrics = dict(precision=[], recall=[], fscore=[], kappa=[])
+        #losses = []
+        metrics = dict(precision=[], recall=[], fscore=[], kappa=[], mIoU=[])
         with tqdm(enumerate(test_loader), total=len(test_loader), leave=False) as pbar:
             for idx, batch in pbar:
                 im, target, id = batch
                 im = im.to(device)
                 target = target.to(device)
                 y_pred = model(im)
-                valid_data = im.sum(1) != 0  # all pixels > 0
-                loss = criterion(y_pred.squeeze(1), target, mask=valid_data)
-                losses.append(loss.cpu().detach().numpy())
-                pbar.set_description(f"test loss {np.array(losses).mean():.4f}")
+                #valid_data = im.sum(1) != 0  # all pixels > 0
+                #loss = criterion(y_pred.squeeze(1), target, mask=valid_data)
+                #losses.append(loss.cpu().detach().numpy())
+                #pbar.set_description(f"test loss {np.array(losses).mean():.4f}")
                 predictions = (y_pred.exp() > 0.5).cpu().detach().numpy()
                 y_true = target.cpu().view(-1).numpy().astype(bool)
                 y_pred = predictions.reshape(-1)
                 p, r, f, s = precision_recall_fscore_support(
                     y_true=y_true, y_pred=y_pred, zero_division=0
                 )
-                metrics["kappa"] = cohen_kappa_score(y_true, y_pred)
+                metrics["kappa"].append(cohen_kappa_score(y_true.astype(int), y_pred.astype(int)))
+                metrics["mIoU"].append(jaccard_score(
+                    y_true.astype(int), y_pred.astype(int), pos_label=1, average="binary"))
                 metrics["precision"].append(p)
                 metrics["recall"].append(r)
                 metrics["fscore"].append(f)
@@ -226,7 +229,7 @@ def testing_epoch(model, test_loader, criterion, device, writer):
     
     
 
-    return np.array(losses).mean(), metrics
+    return metrics #np.array(losses).mean(), metrics
 
 
 def predict_images(batch, model, device): #val_loader, model, device):

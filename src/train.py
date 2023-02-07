@@ -100,8 +100,8 @@ def main(args):
     os.makedirs(os.path.dirname(args.snapshot_path), exist_ok=True)
     with open(
         os.path.join(
-            os.path.dirname(args.snapshot_path),
-            f"run_arguments_{args.seed}{args.today}.json",
+            args.model_folder,
+            f"run_arguments_{args.model_id}.json",
         ),
         "w",
     ) as outfile:
