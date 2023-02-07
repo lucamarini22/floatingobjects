@@ -2,21 +2,32 @@ import argparse
 from train import main as train
 from predict import main as predict
 import os
-import datetime
+import pathlib
+from utils import get_today_str, get_project_path
 
 
 def main(args):
     if args.mode == "train":
         for seed in range(5):
             args.seed = seed
-            today_str = datetime.datetime.now().replace(microsecond=0).isoformat()
+
+            args.today_str = get_today_str()
+            proj_path = get_project_path()
+            args.model_id = f"{args.model}-model-{seed}-{args.today_str}"
+            # path of new or pre-existing trained model
             args.snapshot_path = os.path.join(
-                args.results_dir, f"unet-model-{seed}-{today_str}-{args.loss}.pth.tar"
+                proj_path, args.results_dir, f"{args.model_id}.pth.tar"
             )
-            args.tensorboard_logdir = os.path.join(args.tensorboard, f"model_{seed}/")
-            os.makedirs(args.results_dir, exist_ok=True)
-            os.makedirs(args.tensorboard, exist_ok=True)
-            args.today = today_str
+            # path of folder to store model
+            args.model_folder = os.path.join(proj_path, args.results_dir, args.model_id)
+            # path where to store files for Tensorboard
+            args.tensorboard_logdir = os.path.join(
+                proj_path, args.tensorboard, args.model_id
+            )
+            # create folders to store tensorboard files
+            os.makedirs(args.model_folder, exist_ok=True)
+            os.makedirs(args.tensorboard_logdir, exist_ok=True)
+            # start training
             train(args)
     elif args.mode == "predict":
         predict(args)
@@ -25,12 +36,12 @@ def main(args):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", type=str, choices=["train", "predict"])
-    parser.add_argument("--results-dir", type=str, default="/tmp/floatingobjects")
-    parser.add_argument("--tensorboard", type=str, default=None)
+    parser.add_argument("--results-dir", type=str, default="models")
+    parser.add_argument("--tensorboard", type=str, default="log")
 
     # train arguments
     parser.add_argument("--data-path", type=str, default="/data")
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=256)  # 8)
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--image-size", type=int, default=128)
     parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cuda")

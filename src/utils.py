@@ -6,6 +6,9 @@ from skimage.exposure import equalize_hist
 from src.data import l2abands, l1cbands
 import matplotlib
 import matplotlib.cm
+import datetime
+import pathlib
+import os
 
 
 def load_convert_tiff(tiff):
@@ -63,3 +66,14 @@ def acquire_data(file_name):
     )  # Diving for the default quantification value
 
     return sentinel_img, coords_dict
+
+
+def get_today_str():
+    today_str = datetime.datetime.now().replace(microsecond=0).isoformat()
+    today_str = today_str.replace(":", "-")
+    today_str = today_str.replace("T", "-")
+    return today_str
+
+
+def get_project_path():
+    return os.path.join(pathlib.Path(__file__).parent.parent.resolve())
